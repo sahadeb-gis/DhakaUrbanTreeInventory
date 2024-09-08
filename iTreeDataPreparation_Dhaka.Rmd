@@ -1,0 +1,42 @@
+---
+title: "iTree data preparation"
+author: "COMPASS"
+date: "12/12/2021"
+output: word_document
+---
+
+
+# Set WD
+```{r}
+setwd("C:/Users/Akhter/OneDrive/iTree")
+```
+
+
+# Import data
+```{r}
+zone <- read.csv("./data/stratum_info.csv", stringsAsFactors = F)
+plot <- read.csv("./data/Plot17112021.csv", stringsAsFactors = F)
+tree <- read.csv("./data/tree17112021_v2.csv", stringsAsFactors = F)
+```
+
+# Run the necessary libraries
+```{r}
+library(data.table)
+library(plotrix)
+```
+
+
+
+# Data preparation
+```{r}
+colnames(plot) <- c("plot_id", "stratum", "address", "lat", "long", "date", "crew", "contact", "pa_ha", "ploto", "stake", "tree_p", "shrub_p", "sampled_p", "notes", "complete")
+
+colnames(tree) <- c("plot_id", "tree_id", "date", "status", "distance", "direction", "species", "lu", "d1", "d1h", "d1m", "d2", "d2h", "d2m", "d3", "d3h", "d3m", "d4", "d4h", "d4m", "d5", "d5h", "d5m", "d6", "d6h", "d6m", "cd_p", "th", "cth", "cbh", "cwns", "cwew", "cm_p", "i_p", "t_shrub_p", "cle", "st", "public", "t_lat", "t_long", "t_comment")
+
+# Consider the sampled plots only
+plot <- plot[plot$complete=="True",]
+
+# Sampled area per plot
+plot$ai <- (plot$sampled_p/100)*(pi*11.35^2)/10000
+```
+

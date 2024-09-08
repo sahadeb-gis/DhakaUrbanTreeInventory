@@ -1,0 +1,756 @@
+---
+title: "iTree Data Analysis_DNCC"
+author: "COMPASS"
+date: "12/14/2021"
+output: word_document
+---
+
+# 1. Introduction
+This document is a r-script for analysis of the tree data collected from Dhaka North City Corporation (DNCC) applying iTree Canopy platform. Species richness, tree density, basal area, tree cover, phtosociological attributes, diversity indices of the tree species, growing stock, biomass and carbon are the major variables estimated in this r-script using i-Tree data.There aare three strata and 11 land uses in DNCC. The key parameters were estimated for per strata and land uses.
+
+
+# 2. Sampling process
+The quadrat were 11.35 m radius circular plots.
+
+
+# 3. Brief information regarding the databases used in this script
+- plot = All plot basic data from i-Tree Eco Project
+- tree = All tree data from i-Tree Eco Project
+- gclu = Ground cover and land use data at plot level from the i-Tree Eco Project
+- zone = Basic information regarding the three strata
+- wd_sp_bd =  Wood density database from BFRI
+- wd_sp = Wood density per species
+- wd_gen = wood density per genus
+- wd_fam = Wood density per family
+- spp_info = family, local name and origin of the species recorded from DNCC
+
+
+# 4. Data import
+```{r}
+# Remove memory
+rm(list = ls())
+
+# Set working directory
+setwd("E:/Dropbox/iTree")
+
+
+# Import survey data
+zone <- read.csv("./data/stratum_info.csv", stringsAsFactors = F)
+plot <- read.csv("./data/plot_v2_20220212.csv", stringsAsFactors = F)
+tree <- read.csv("./data/tree_v3_20220211.csv", stringsAsFactors = F)
+gclu <- read.csv("./data/gc_lu_20220211.csv", stringsAsFactors = F)
+
+# Auxiliary data
+spp_info <- read.csv("./data/added_tree_info.csv", stringsAsFactors = F)
+wd_sp_bd <- read.csv("./data/wd_bd.csv", header=T, stringsAsFactors = F)
+wd_fam <- read.csv("./data/wd_fam.csv", header=T, stringsAsFactors = FALSE)
+wd_gen <- read.csv("./data/wd_gen.csv", header=T,  stringsAsFactors = FALSE)
+wd_sp <- read.csv("./data/wd_sp.csv", header=T, stringsAsFactors = FALSE)
+
+
+# Run the necessary libraries
+library(data.table)
+library(plotrix)
+library(gtools)
+require(reshape2)
+library(ggplot2)
+```
+
+
+# 5. Data preparation
+```{r}
+
+# Data preparation
+colnames(plot) <- c("plot_id", "stratum", "address", "lat", "long", "date",
+                    "crew", "contact", "pa_ha", "ploto", "stake", "tree_p",
+                    "shrub_p", "sampled_p", "notes", "complete")
+
+colnames(tree) <- c("plot_id", "tree_id", "date", "status", "distance",
+                    "direction", "species", "lu", "d1", "d1h", "d1m", "d2",
+                    "d2h", "d2m", "d3", "d3h", "d3m", "d4", "d4h", "d4m", "d5",
+                    "d5h", "d5m", "d6", "d6h", "d6m", "cd_p", "th", "cth",
+                    "cbh", "cwns", "cwew", "cm_p", "i_p", "t_shrub_p", "cle",
+                    "st", "public", "t_lat", "t_long", "t_comment")
+
+# Consider the sampled plots only
+plot <- plot[plot$complete=="TRUE",]
+
+# Sampled area per plot
+plot$ai <- (plot$sampled_p/100)*(pi*11.35^2)/10000
+
+
+# Preparing tree cover data per plot
+attach(plot)
+plot$tree_p2 <- ifelse(tree_p=="100%", 100,
+                       ifelse(tree_p=="95% - 99%", 97,
+                              ifelse(tree_p=="90% - 95%", 92.5,
+                                     ifelse(tree_p=="85% - 90%", 87.5,
+                                            ifelse(tree_p=="80% - 85%", 82.5,
+                                                   ifelse(tree_p=="75% - 80%", 77.5,
+                                                          ifelse(tree_p=="70% - 75%", 72.5,
+                                                                 ifelse(tree_p=="65% - 70%", 67.5,
+                                                                        ifelse(tree_p=="60% - 65%", 62.5,
+                                                                               ifelse(tree_p== "55% - 60%",57.5,
+                                                                                      ifelse(tree_p=="50% - 55%", 52.5,
+                                                                                             ifelse(tree_p=="45% - 50%", 47.5,
+                                                                                                    ifelse(tree_p=="40% - 45%", 42.5,
+ifelse(tree_p=="35% - 40%", 37.5,
+       ifelse(tree_p=="30% - 35%", 32.5,
+              ifelse(tree_p=="25% - 30%", 27.5,
+                     ifelse(tree_p=="20% - 25%", 22.5,
+                            ifelse(tree_p=="15% - 20%", 17.5,
+                                   ifelse(tree_p=="10% - 15%", 12.5,
+                                          ifelse(tree_p=="5% - 10%",
+                                                 7.5, ifelse(tree_p=="1% - 5%", 3,
+                                                             ifelse(tree_p=="0%", 0, "Not Entered"))))))))))))))))))))))
+
+
+# Add ground cover and land use with plot
+#plot2 <- merge(plot, gclu, by="plot_id", all.x=T)
+
+# Add additional species information with the tree data base
+tree <- merge(tree, spp_info, by="species", all.x=T)
+tree$count <- 1
+
+# Add stratum name with tree
+tree <- merge(tree, plot[,c("plot_id", "stratum", "ai")], by="plot_id", all.x=T)
+tree <- tree[!is.na(tree$stratum),]
+
+```
+
+
+
+# 6. Species richness
+```{r}
+# Species composition
+sp_comp <- unique(tree[,c("species", "family", "exotic_nat")])
+write.csv(sp_comp, file="./analysis_outputs/1. Species composition.csv", row.names = F)
+```
+
+
+## 6.1 Species richness by stratum
+```{r}
+# Species number per stratum
+t_z <- unique(tree[,c("stratum", "species", "local_name", "family", "exotic_nat", "count")]) # t_z = Number of tree species per stratum
+t_z$exotic <- ifelse(t_z$exotic_nat=="Exotic", 1, 0)
+t_z$native <- ifelse(t_z$exotic_nat=="Native", 1, 0)
+t_z <- data.table(t_z)
+t_z2 <- t_z[,list(spp_no = length(unique(species)),
+               fam_no = length(unique(family)),
+               native = sum(native),
+               exotic = sum(exotic)),
+            by="stratum"]
+
+# Export output
+write.csv(t_z2, file="./analysis_outputs/3.1.1. Number of species per stratum.csv", row.names = F)
+
+# Number of species in all zone
+length(unique(tree$species))
+# Number of families in all zone
+length(unique(tree$family))
+# Number of exotic species
+length(unique(tree[,c("species", "exotic_nat")][tree$exotic_nat=="Exotic",])$exotic_nat)
+# Number of native species
+length(unique(tree[,c("species", "exotic_nat")][tree$exotic_nat=="Native",])$exotic_nat)
+
+
+```
+
+
+## 6.2 Species richness by land use
+```{r}
+# Species number per land use
+t_lu <- unique(tree[,c("lu", "species", "local_name", "family", "exotic_nat", "count")]) 
+t_lu$exotic <- ifelse(t_lu$exotic_nat=="Exotic", 1, 0)
+t_lu$native <- ifelse(t_lu$exotic_nat=="Native", 1, 0)
+t_lu <- data.table(t_lu)
+t_lu2 <- t_lu[,list(spp_no = length(unique(species)),
+               fam_no = length(unique(family)),
+               native = sum(native),
+               exotic = sum(exotic)),
+            by="lu"]
+
+# Export output
+write.csv(t_lu2, file="./analysis_outputs/3.1.2. Number of species per land use.csv", row.names = F)
+
+
+```
+
+
+# 7. Phytosociological attributes
+## List of variable names prepared and usind in the data frame for anlysis
+- a = number of individuals of the ith species occurred in the area of interest;
+- b = total number of quadrats studied;
+- c = total number of quadrats in which the species occurred;
+- M = Total number of individuals of all the species in the area of interest,
+- F = frequency of ith species, S = number of species.
+- ai_s = Sampled area per stratum
+
+## 7.1 Phytosociological attributes per stratum
+```{r}
+# Number of individuals (a) per species and stratum
+PA_s <- aggregate(data=tree, count~stratum+species, sum)
+names(PA_s)[3] <- "a"
+# Add the sampled area and number of quadrats per stratum
+PA_s <- merge(PA_s, zone[,c("stratum", "sampled_plot_no", "sampled_area_ha")], by= "stratum", all.x = T)
+names(PA_s)[names(PA_s)=="sampled_plot_no"] <- "b"
+names(PA_s)[5] <- "ai_s"
+
+# Number of plots occurred per species and stratum
+npo <- unique(tree[,c("plot_id", "stratum", "species", "count")])
+np_ss <- aggregate(data=npo, count~species+stratum, sum) #np_ss = no. of plots occurred by species and stratum
+names(np_ss)[3] <- "c"
+PA_s <- merge(PA_s, np_ss, by=c("stratum", "species"), all.x=T)
+
+# Total number of individuals (M) of all species per stratum
+ni_s <- aggregate(data=PA_s, a~stratum, sum) #Number of individuals of all species per site
+names(ni_s)[2] <- "M"
+PA_s <- merge(PA_s, ni_s, by="stratum", all.x=T)
+
+# Add the number of species per stratum from "t_z2" data frame
+PA_s <- merge(PA_s, t_z2[,c("stratum", "spp_no")], by="stratum", all.x = T)
+names(PA_s)[8] <- "S"
+
+# Stem density per ha
+PA_s$td_ha <- PA_s$a/PA_s$ai_s
+
+# Density
+PA_s$D <- PA_s$a/PA_s$b
+PA_s$RD <- (PA_s$a/PA_s$M)*100
+
+# Frequency
+PA_s$F <- PA_s$c/PA_s$b
+PA_s$RF <- ifelse(PA_s$stratum=="Tree", (PA_s$F/sum(PA_s[PA_s$stratum=="Tree",]$F))*100,
+                    ifelse(PA_s$stratum=="Scatter", (PA_s$F/sum(PA_s[PA_s$stratum=="Scatter",]$F))*100,
+                           ifelse(PA_s$stratum=="Others", (PA_s$F/sum(PA_s[PA_s$stratum=="Others",]$F))*100, NA)))
+
+# Abundabce
+PA_s$A <- PA_s$a/PA_s$c
+PA_s$RA <- ifelse(PA_s$stratum=="Tree", (PA_s$A/sum(PA_s[PA_s$stratum=="Tree",]$A))*100,
+                    ifelse(PA_s$stratum=="Scatter", (PA_s$A/sum(PA_s[PA_s$stratum=="Scatter",]$A))*100,
+                           ifelse(PA_s$stratum=="Others", (PA_s$A/sum(PA_s[PA_s$stratum=="Others",]$A))*100, NA)))
+
+# Importance Vlaue index (IVI)
+PA_s$IVI <- PA_s$RD+PA_s$RF+PA_s$RA
+
+# Export the output
+write.csv(PA_s, file="./analysis_outputs/Phytosociological attributes per statum.csv", row.names = F)
+```
+
+
+## 7.2 Phytosociological attributes for DNCC
+```{r}
+# Stem density per ha per species
+PA_s  <- merge(PA_s, zone[,c("stratum", "Wh")], by="stratum", all.x=T)
+PA_s$wtd_ha <- PA_s$td_ha*PA_s$Wh #wtd_ha = weighted tree density per ha
+td_sp <- aggregate(data=PA_s, wtd_ha~species, sum)
+
+# Number of individuals (a) per species
+PA <- aggregate(data=tree, count~species, sum)
+names(PA)[2] <- "a"
+# Add the total number of quadrat studied
+PA$b <- sum(zone$sampled_plot_no)
+
+# Number of plots occurred per species
+npo_sp <- unique(tree[,c("plot_id", "species", "count")])
+np_sp <- aggregate(data=npo_sp, count~species, sum) #np_sp = no. of plots occurred by species
+names(np_sp)[2] <- "c"
+PA <- merge(PA, np_sp, by="species", all.x=T)
+
+# Total number of individuals (M) of all species
+PA$M <- sum(PA$a)
+
+# Add stem density per ha
+PA <- merge(PA, td_sp, by="species", all.x=T)
+
+# Density
+PA$D <- PA$a/PA$b
+PA$RD <- (PA$a/PA$M)*100
+
+# Frequency
+PA$F <- PA$c/PA$b
+PA$RF <- (PA$F/sum(PA$F))*100
+
+# Abundabce
+PA$A <- PA$a/PA$c
+PA$RA <- PA$A/sum(PA$A)*100
+
+# Importance Vlaue index (IVI)
+PA$IVI <- PA$RD+PA$RF+PA$RA
+
+# Export the output
+write.csv(PA, file="./analysis_outputs/Phytosociological attributes for DNCC.csv", row.names = F)
+            
+```
+
+
+# 8. Diversity indicers of the tree species
+Four diversity indices were calculated.
+
+## 8.1 Diversity indicers of the tree species per stratum
+```{r}
+DI_s <- PA_s[,c("species", "stratum", "a", "M")]
+DI_s$Pi <- DI_s$a/DI_s$M
+DI_s$Pi2 <- DI_s$Pi^2
+DI_s$Pi_LnPi <- DI_s$Pi*log(DI_s$Pi)
+DI_s$aiai_1 <- DI_s$a*(DI_s$a-1) #aiai_1 = (a(a-1)) of the equation
+
+# Prepare the diversity indices per stratum table
+DI_sF <- data.table(DI_s)
+DI_sF <- DI_sF[,list(H = sum(-Pi_LnPi),
+                     Sd1 = sum(aiai_1)), by="stratum"]
+
+# Add number of species and total number of individuals per stratum
+DI_sF <- merge(DI_sF, unique(PA_s[,c("stratum", "M", "S")]), by="stratum", all.x=T)
+DI_sF$R <- (DI_sF$S-1)/log(DI_sF$M) # R = Richness index
+DI_sF$Sd <- 1-(DI_sF$Sd1)/(DI_sF$M*(DI_sF$M-1)) # Sd = Simpson's Dominance Index
+DI_sF$E <- DI_sF$H/log(DI_sF$S) # E = Pilou's evenness index
+
+# Export the outptus
+write.csv(DI_sF, file="./analysis_outputs/Diversity indices per stratum.csv", row.names = F)
+
+```
+
+
+## 8.2 Diversity indicers for whole DNCC
+```{r}
+DI <- aggregate(data=tree, count~species, sum)
+names(DI)[2] <- "a"
+DI$M <- sum(DI$a)
+DI$Pi <- DI$a/DI$M
+DI$Pi2 <- DI$Pi^2
+DI$Pi_LnPi <- DI$Pi*log(DI$Pi)
+DI$aiai_1 <- DI$a*(DI$a-1)
+
+# Prepare the diversity indices per stratum table
+DIF <- data.frame(H = sum(-DI$Pi_LnPi),
+                  R = (length(unique(tree$species))-1)/log(sum(DI$a)),
+                  Sd = 1-(sum(DI$aiai_1)/(sum(DI$a)*(sum(DI$a)-1))),
+                  E = sum(-DI$Pi_LnPi)/log(length(unique(tree$species))))
+
+
+
+# Export the outptus
+write.csv(DIF, file="./analysis_outputs/Diversity indices for whole DNCC.csv", row.names = F)
+
+```
+
+
+# 9. Estimating the key variables at tree level
+## 9.1 Basal Area
+```{r}
+tree$d1_m <- tree$d1/100
+tree$d2_m <- tree$d2/100
+tree$d3_m <- tree$d3/100
+tree$d4_m <- tree$d4/100
+tree$d5_m <- tree$d5/100
+tree$d6_m <- tree$d6/100
+
+tree$ba1 <- (pi*(tree$d1_m^2))/4 #ba1 = Basal area based on diameter 1 in m2
+tree$ba2 <- (pi*(tree$d2_m^2))/4
+tree$ba3 <- (pi*(tree$d3_m^2))/4
+tree$ba4 <- (pi*(tree$d4_m^2))/4
+tree$ba5 <- (pi*(tree$d5_m^2))/4
+tree$ba6 <- (pi*(tree$d6_m^2))/4
+
+which(colnames(tree)=="ba1") #To know the column number
+match("ba6", names(tree)) #To know the column number
+
+tree[,57:62][is.na(tree[,57:62])] <- 0 # Convert NAs into 0
+tree$ba <- tree$ba1+tree$ba2+tree$ba3+tree$ba4+tree$ba5+tree$ba6
+
+
+```
+
+
+
+## 9.2 Growing Stock
+Growing stock is estimated using the quarter girth equation with an average form factor (0.693) applicable for Bangladesh. The form factor was adopted from BFI Cycle 1 data analysis method.  
+```{r}
+tree$gs1 <- ifelse(tree$d1>=10, (pi*(tree$d1_m^2)*tree$th*0.693)/4, 0) #gs1 = Growing stock in m3 based on DBH 1
+tree$gs2 <- ifelse(tree$d2>=10, (pi*(tree$d2_m^2)*tree$th*0.693)/4, 0) #gs2 = Growing stock in m3 based on DBH 2
+tree$gs3 <- ifelse(tree$d3>=10, (pi*(tree$d3_m^2)*tree$th*0.693)/4, 0) #gs3 = Growing stock in m3 based on DBH 3
+tree$gs4 <- ifelse(tree$d4>=10, (pi*(tree$d4_m^2)*tree$th*0.693)/4, 0) #gs4 = Growing stock in m3 based on DBH 4
+tree$gs5 <- ifelse(tree$d5>=10, (pi*(tree$d5_m^2)*tree$th*0.693)/4, 0) #gs5 = Growing stock in m3 based on DBH 5
+tree$gs6 <- ifelse(tree$d6>=10, (pi*(tree$d6_m^2)*tree$th*0.693)/4, 0) #gs6 = Growing stock in m3 based on DBH 6
+
+# gs1 column number
+which(colnames(tree)== "gs1")
+match("gs6", names(tree)) #To know the column number
+
+# Convert NAs into zero
+tree[,64:69][is.na(tree[,64:69])] <- 0
+tree$gs <- tree$gs1+tree$gs2+tree$gs3+tree$gs4+tree$gs5+tree$gs6
+
+```
+
+
+## 9.3 Biomass
+### 9.3.1 Above Ground Biomass
+Above Ground Biomss (AGB) is estimated using the pantropical allomet Chaves et all 2014.
+```{r}
+# Adding wood density data
+treeB <- merge(tree, wd_sp_bd[,c("tree_spp_scientific_name", "wd_bd")], by.x="genus_species",
+               by.y="tree_spp_scientific_name", all.x = T)
+treeB <- merge(treeB, wd_sp[,c("Binomial","wd_sp")], by.x = "genus_species", by.y="Binomial",
+               all.x =TRUE)
+treeB <- merge(treeB, wd_gen[,c("Genus","wd_gen")], by.x = "genus_species", by.y="Genus",
+               all.x =TRUE)
+treeB <- merge(treeB, wd_fam[,c("Family","wd_fam")],by.x = "family", by.y="Family", all.x=TRUE)
+
+# Prepare wd column with wd from different columns
+treeB$wd <- ifelse(!is.na(treeB$wd_bd), treeB$wd_bd,
+                   ifelse(!is.na(treeB$wd_sp), treeB$wd_sp,
+                          ifelse(!is.na(treeB$wd_gen), treeB$wd_gen,
+                                 ifelse(!is.na(treeB$wd_fam), treeB$wd_fam,
+                                        0.6133782)))) # wd= wood density in g/cm3
+# Checking NA in wd column
+treeB_NAWD <-treeB[is.na(treeB$wd),]
+
+#Applying Chaves et al. (2014) best-fitted pantropical equation for above ground biomass (AGB) estimation
+treeB$agb1 <- 0.0673*(treeB$wd*(treeB$d1^2)*treeB$th)^0.976 #abg1 = AGB in kg for DBH 1
+treeB$agb2 <- 0.0673*(treeB$wd*(treeB$d2^2)*treeB$th)^0.976 #abg2 = AGB in kg for DBH 2
+treeB$agb3 <- 0.0673*(treeB$wd*(treeB$d3^2)*treeB$th)^0.976 #abg3 = AGB in kg for DBH 3
+treeB$agb4 <- 0.0673*(treeB$wd*(treeB$d4^2)*treeB$th)^0.976 #abg4 = AGB in kg for DBH 4
+treeB$agb5 <- 0.0673*(treeB$wd*(treeB$d5^2)*treeB$th)^0.976 #abg5 = AGB in kg for DBH 5
+treeB$agb6 <- 0.0673*(treeB$wd*(treeB$d6^2)*treeB$th)^0.976 #abg6 = AGB in kg for DBH 6
+
+# Check agb1 and agb6 colunm number
+which(colnames(treeB)=="agb1")
+match("agb6", names(treeB)) #To know the column number
+
+# Convert NA in agb1 to agb6 into zero
+treeB[,76:81][is.na(treeB[,76:81])] <- 0
+
+# agb in kg per tree
+treeB$agb <- treeB$agb1+treeB$agb2+treeB$agb3+treeB$agb4+treeB$agb5+treeB$agb6
+# agb in ton
+treeB$agb_t <- treeB$agb/1000
+
+```
+
+
+### 9.3.2 Below ground biomass
+Below Ground Biomass (BGB) is calculated using Pearson et al. (2007) equation for BGB. Accoriding to Pearson et al. (2007), BGB = exp(-1.0587 + 0.8836 x ln AGB).
+
+```{r}
+treeB$bgb_t <- exp(-1.0587 + 0.8836*log(treeB$agb_t))
+```
+
+### 9.3.3 Total tree biomass
+```{r}
+treeB$ttb_t <- treeB$agb_t+treeB$bgb_t
+```
+
+
+
+## 9.4. Carbon
+Carbon in AGB and BGB is estimated as 50% of the AGB and BGB respectively.
+```{r}
+# A separate file for carbon
+treeC <- treeB
+# Carbon in AGB
+treeC$cagb_t <- treeC$agb_t*0.5
+# Carbon in BGB
+treeC$cbgb_t <- treeC$bgb_t*0.5
+# Total carbon per tree
+treeC$carbon_t <- treeC$cagb_t+treeC$cbgb_t
+
+```
+
+
+# 10 Estimating means at strata and DNCC level
+
+Under this section the key variables- stem density, basal area, tree cover, growing stock, AGB, BGB, TTB, CAGB, CBGB, and TTC were estimated per stratum and whole DNCC.
+
+```{r}
+# All key variable at plot level
+kv_p <- data.table(treeC)
+kv_p <- kv_p[,list(nt_p = sum(count),
+                   ba_p = sum(ba),
+                   gs_p = sum(gs),
+                   agb_p_t = sum(agb_t),
+                   bgb_p_t = sum(bgb_t),
+                   ttb_p_t = sum(ttb_t),
+                   cagb_p_t = sum(cagb_t),
+                   cbgb_p_t = sum(cbgb_t),
+                   ttc_p_t = sum(carbon_t)),
+             by = "plot_id"]  #kv_p = key variabels per plot
+
+# add sampled area and tc of all measured plots
+kv_p2 <- merge(kv_p, plot[,c("plot_id", "stratum", "tree_p2", "ai")], by="plot_id", all.y=T)
+
+# Convert NAs into zero
+kv_p2[,2:10][is.na(kv_p2[,2:10])] <- 0
+
+# Calculate the variables per hectare basis
+kv_p2$nt_p_ha <- kv_p2$nt_p/kv_p2$ai
+kv_p2$ba_p_ha <- kv_p2$ba_p/kv_p2$ai
+kv_p2$gs_p_ha <- kv_p2$gs_p/kv_p2$ai
+kv_p2$agb_p_tha <- kv_p2$agb_p_t/kv_p2$ai
+kv_p2$bgb_p_tha <- kv_p2$bgb_p_t/kv_p2$ai
+kv_p2$ttb_p_tha <- kv_p2$ttb_p_t/kv_p2$ai
+kv_p2$cagb_p_tha <- kv_p2$cagb_p_t/kv_p2$ai
+kv_p2$cbgb_p_tha <- kv_p2$cbgb_p_t/kv_p2$ai
+kv_p2$ttc_p_tha <- kv_p2$ttc_p_t/kv_p2$ai
+
+# Convert tree cover as numeric
+kv_p2$tree_p2 <- as.numeric(kv_p2$tree_p2)
+
+# Key variable at stratum level
+kv_s <- data.table(kv_p2)
+kv_s <- kv_s[,list(nt_ha = mean(nt_p_ha),
+                   nt_se = std.error(nt_p_ha),
+                   ba_ha = mean(ba_p_ha),
+                   ba_se = std.error(ba_p_ha),
+                   tc = mean(tree_p2),
+                   tc_se = std.error(tree_p2),
+                   gs_ha = mean(gs_p_ha),
+                   gs_se = std.error(gs_p_ha),
+                   agb_ha = mean(agb_p_tha),
+                   agb_se = std.error(agb_p_tha),
+                   bgb_ha = mean(bgb_p_tha),
+                   bgb_se = std.error(bgb_p_tha),
+                   ttb_ha = mean(ttb_p_tha),
+                   ttb_se = std.error(ttb_p_tha),
+                   cagb_ha = mean(cagb_p_tha),
+                   cagb_se = std.error(cagb_p_tha),
+                   cbgb_ha = mean(cbgb_p_tha),
+                   cbgb_se = std.error(cbgb_p_tha),
+                   ttc_ha = mean(ttc_p_tha),
+                   ttc_se = std.error(ttc_p_tha)),
+             by="stratum"]
+
+# Add stratum weight
+kv_s2 <- merge(kv_s, zone[,c("stratum", "Wh")], by = "stratum", all.x=T)
+
+# multiply key variables with stratum weights
+kv_s2$nt_ha_w <- kv_s2$nt_ha*kv_s2$Wh
+kv_s2$ba_ha_w <- kv_s2$ba_ha*kv_s2$Wh
+kv_s2$tc_w <- kv_s2$tc*kv_s2$Wh
+kv_s2$gs_ha_w <- kv_s2$gs_ha*kv_s2$Wh
+kv_s2$agb_ha_w <- kv_s2$agb_ha*kv_s2$Wh
+kv_s2$bgb_ha_w <- kv_s2$bgb_ha*kv_s2$Wh
+kv_s2$ttb_ha_w <- kv_s2$ttb_ha*kv_s2$Wh
+kv_s2$cagb_ha_w <- kv_s2$cagb_ha*kv_s2$Wh
+kv_s2$cbgb_ha_w <- kv_s2$cbgb_ha*kv_s2$Wh
+kv_s2$ttc_ha_w <- kv_s2$ttc_ha*kv_s2$Wh
+
+# Key avraibels at DNCC levels
+kv_DNCC <- data.frame(nt_ha = sum(kv_s2$nt_ha_w),
+                      nt_se = std.error(kv_p2$nt_p_ha),
+                      ba_ha = sum(kv_s2$ba_ha_w),
+                      ba_se = std.error(kv_p2$ba_p_ha),
+                      tc = sum(kv_s2$tc_w),
+                      tc_se = std.error(kv_p2$tree_p2),
+                      gs_ha = sum(kv_s2$gs_ha_w),
+                      gs_se = std.error(kv_p2$gs_p_ha),
+                      agb_ha = sum(kv_s2$agb_ha_w),
+                      agb_se = std.error(kv_p2$agb_p_tha),
+                      bgb_ha = sum(kv_s2$bgb_ha_w),
+                      bgb_se = std.error(kv_p2$bgb_p_tha),
+                      ttb_ha = sum(kv_s2$ttb_ha_w),
+                      ttb_se = std.error(kv_p2$ttb_p_tha),
+                      cagb_ha = sum(kv_s2$cagb_ha_w),
+                      cagb_se = std.error(kv_p2$cagb_p_tha),
+                      cbgb_ha = sum(kv_s2$cbgb_ha_w),
+                      cbgb_se = std.error(kv_p2$cbgb_p_tha),
+                      ttc_ha = sum(kv_s2$ttc_ha_w),
+                      ttc_se = std.error(kv_p2$ttc_p_tha))
+
+kv_DNCC$stratum <- "DNCC"
+
+# Combine stratum and DNCC level estimates
+kv_F <- smartbind(kv_s2, kv_DNCC)
+# kv_F = rbind.fill(kv_s2, kv_DNCC) #library("plyr")
+
+# Export the outputs
+write.csv(kv_F[,c("stratum", "nt_ha", "nt_se", "ba_ha", "ba_se", "tc", "tc_se", "gs_ha", "gs_se", "agb_ha", "agb_se", "bgb_ha", "bgb_se", "ttb_ha", "ttb_se", "cagb_ha", "cagb_se", "cbgb_ha", "cbgb_se", "ttc_ha", "ttc_se")], file = "./analysis_outputs/key variables per stratum and DNCC.csv", row.names = F)
+
+```
+
+
+# 11. Estimating means of the key variables per land use and DNCC level
+
+Under this section the key variables- stem density, basal area, tree cover, growing stock, AGB, BGB, TTB, CAGB, CBGB, and TTC were estimated per land uses (identified by the field teams) and whole DNCC.
+
+```{r}
+# prepare the land use table
+# Plot area in ha
+pa <- (pi*11.35^2)/10000 # pa = plot area in ha
+
+# LU area (ha) per plot
+gclu$LU_vacant_ha <- (gclu$LU_vacant/100)*pa
+gclu$LU_residential_ha <- (gclu$LU_residential/100)*pa
+gclu$LU_forest_ha <- (gclu$LU_forest/100)*pa
+gclu$LU_water_wetland_ha <- (gclu$LU_water_wetland/100)*pa
+gclu$LU_park_ha <- (gclu$LU_park/100)*pa
+gclu$LU_cemetery_ha <- (gclu$LU_cemetery/100)*pa
+gclu$LU_transportation_ha <- (gclu$LU_transportation/100)*pa
+gclu$LU_agriculture_ha <- (gclu$LU_agriculture/100)*pa
+gclu$LU_institutional_ha <- (gclu$LU_institutional/100)*pa
+gclu$LU_commercial_industrial_ha <- (gclu$LU_commercial_industrial/100)*pa
+gclu$LU_other_ha <- (gclu$LU_other/100)*pa
+
+
+
+# Add complete status
+gclu <- merge(gclu, plot[,c("plot_id", "complete")], by="plot_id", all.x=T)
+
+# Select only completely measured plots
+gclu <- gclu[!is.na(gclu$complete),]
+
+
+# Total sampled area (ha) per land use
+ai_lu <- data.frame(Vacant = sum(gclu$LU_vacant_ha),
+                    Residential = sum(gclu$LU_residential_ha),
+                    Forest = sum(gclu$LU_forest_ha),
+                    Water_Wetland = sum(gclu$LU_water_wetland_ha),
+                    Park = sum(gclu$LU_park_ha),
+                    Cemetery = sum(gclu$LU_cemetery_ha),
+                    Transportation = sum(gclu$LU_transportation_ha),
+                    Agriculture = sum(gclu$LU_agriculture_ha),
+                    Institutional = sum(gclu$LU_institutional_ha),
+                    Commercial_Industrial = sum(gclu$LU_commercial_industrial_ha),
+                    Other = sum(gclu$LU_other_ha))
+# Melt the area per lu
+# Create ID 
+ai_lu$lu <- "ai_lu_ha"
+ai_lu_molted <- melt(ai_lu, "lu")
+# rename columns
+names(ai_lu_molted)[2:3] <- c("lu", "ai_lu_ha")
+ai_luF <- ai_lu_molted[,2:3]
+
+
+
+# Key variables per lu
+kv_lu <- data.table(treeC)
+kv_lu <- kv_lu[,list(nt_lu = sum(count),
+                   ba_lu = sum(ba),
+                   gs_lu = sum(gs),
+                   agb_lu_t = sum(agb_t),
+                   bgb_lu_t = sum(bgb_t),
+                   ttb_lu_t = sum(ttb_t),
+                   cagb_lu_t = sum(cagb_t),
+                   cbgb_lu_t = sum(cbgb_t),
+                   ttc_lu_t = sum(carbon_t)),
+             by = "lu"]  #kv_lu = key variabels per land use
+# Rename "Commercial/Industrial" land use
+kv_lu$lu <- ifelse(kv_lu$lu=="Commercial/Industrial", "Commercial_Industrial", kv_lu$lu)
+
+# Add sampled area per lu
+kv_lu2 <- merge(kv_lu, ai_luF, by="lu", all.x=T)
+
+# Estimate the variables per hectare basis
+kv_lu2$nt_ha <- kv_lu2$nt_lu/kv_lu2$ai_lu_ha
+kv_lu2$ba_ha <- kv_lu2$ba_lu/kv_lu2$ai_lu_ha
+kv_lu2$gs_ha <- kv_lu2$gs_lu/kv_lu2$ai_lu_ha
+kv_lu2$agb_tha <- kv_lu2$agb_lu_t/kv_lu2$ai_lu_ha
+kv_lu2$bgb_tha <- kv_lu2$bgb_lu_t/kv_lu2$ai_lu_ha
+kv_lu2$ttb_tha <- kv_lu2$ttb_lu_t/kv_lu2$ai_lu_ha
+kv_lu2$cagb_tha <- kv_lu2$cagb_lu_t/kv_lu2$ai_lu_ha
+kv_lu2$cbgb_tha <- kv_lu2$cbgb_lu_t/kv_lu2$ai_lu_ha
+kv_lu2$ttc_tha <- kv_lu2$ttc_lu_t/kv_lu2$ai_lu_ha
+
+# export the outputs
+write.csv(kv_lu2[,c(1,12:20)], file="./analysis_outputs/key variables per land use.csv", row.names = F)
+
+
+# Prepare graphs
+
+## 3.2.2 Tree density per land use
+p322_td <- ggplot(data = kv_lu2, aes(x = lu, y = nt_ha))+
+  geom_bar(stat = "identity")+
+  xlab("Land uses")+ylab(expression(Tree~density~(stem~ha^-1)))+
+  theme(axis.line = element_line(colour = "black", size = 0.5, linetype = "solid"))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("./analysis_outputs/3.2.2. Tree density per land use.tiff", p322_td, units="in", width=3.2,
+         height=4, dpi=300, compression = 'lzw')
+
+## 3.2.2 Tree basal area per land use
+p322_ba <- ggplot(data = kv_lu2, aes(x = lu, y = ba_ha))+
+  geom_bar(stat = "identity")+
+  xlab("Land uses")+ylab(expression(Basal~area~m^2~ha^-1))+ #expression for super script
+  theme(axis.line = element_line(colour = "black", size = 0.5, linetype = "solid"))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("./analysis_outputs/3.2.2. Basal area per land use.tiff", p322_ba, units="in", width=3.2,
+         height=4, dpi=300, compression = 'lzw')
+
+## 3.5.2 Growing stock per land use
+p352 <- ggplot(data = kv_lu2, aes(x = lu, y = gs_ha))+
+  geom_bar(stat = "identity")+
+  xlab("Land uses")+ylab(expression(Growing~stock~m^3~ha^-1))+ #expression for super script
+  theme(axis.line = element_line(colour = "black", size = 0.5, linetype = "solid"))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("./analysis_outputs/3.5.2. Growing stock per land use.tiff", p352, units="in", width=6.4,
+         height=5, dpi=300, compression = 'lzw')
+
+
+
+## 3.6.2 Above Ground Biomass per land use
+p362_agb <- ggplot(data = kv_lu2, aes(x = lu, y = agb_tha))+
+  geom_bar(stat = "identity")+
+  xlab("Land uses")+ylab(expression(Above~ground~biomass~(t~ha^-1)))+ #expression for super script
+  theme(axis.line = element_line(colour = "black", size = 0.5, linetype = "solid"))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("./analysis_outputs/3.6.2. AGB per land use.tiff", p362_agb, units="in", width=3.2,
+         height=4, dpi=300, compression = 'lzw')
+
+
+## 3.6.2 Below Ground Biomass per land use
+p362_bgb <- ggplot(data = kv_lu2, aes(x = lu, y = bgb_tha))+
+  geom_bar(stat = "identity")+
+  xlab("Land uses")+ylab(expression(Below~ground~biomass~(t~ha^-1)))+ #expression for super script
+  theme(axis.line = element_line(colour = "black", size = 0.5, linetype = "solid"))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("./analysis_outputs/3.6.2. BGB per land use.tiff", p362_bgb, units="in", width=3.2,
+         height=4, dpi=300, compression = 'lzw')
+
+
+## 3.7.2 Carbon in Above Ground Biomass per land use
+p372_cagb <- ggplot(data = kv_lu2, aes(x = lu, y = cagb_tha))+
+  geom_bar(stat = "identity")+
+  xlab("Land uses")+ylab(expression(Carbon~"in"~AGB~(t~ha^-1)))+ #expression for super script
+  theme(axis.line = element_line(colour = "black", size = 0.5, linetype = "solid"))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("./analysis_outputs/3.7.2. CAGB per land use.tiff", p372_cagb, units="in", width=3.2,
+         height=3.7, dpi=300, compression = 'lzw')
+
+
+## 3.7.2 Carbon in Below Ground Biomass per land use
+p372_cbgb <- ggplot(data = kv_lu2, aes(x = lu, y = cbgb_tha))+
+  geom_bar(stat = "identity")+
+  xlab("Land uses")+ylab(expression(Carbon~"in"~BGB~(t~ha^-1)))+ #expression for super script
+  theme(axis.line = element_line(colour = "black", size = 0.5, linetype = "solid"))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("./analysis_outputs/3.7.2. CBGB per land use.tiff", p372_cbgb, units="in", width=3.2,
+         height=3.7, dpi=300, compression = 'lzw')
+
+
+## 3.7.2 Total Tree Carbon per land use
+p372_ttc <- ggplot(data = kv_lu2, aes(x = lu, y = ttc_tha))+
+  geom_bar(stat = "identity")+
+  xlab("Land uses")+ylab(expression(Total~tree~carbon~(t~ha^-1)))+ #expression for super script
+  theme(axis.line = element_line(colour = "black", size = 0.5, linetype = "solid"))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("./analysis_outputs/3.7.2. Total tree carbon per land use.tiff", p372_ttc, units="in", width=6.4, height=4.3, dpi=300, compression = 'lzw')
+
+```
+
+
