@@ -1,12 +1,10 @@
----
-title: "iTree Data Analysis_DNCC"
-author: "COMPASS"
-date: "12/14/2021"
-output: word_document
----
+This R code contains scripts for the analysis presented in the follwing paper.
+
+Majumder, S.C., Uddin, M.S., Hossain, M.A., Iqbal, M.Z., Sarkar, P.R., Johnson, K., Aziz, M.T., Rahaman, M.T., Zzaman, M.B., Hossain, M.K., Islam, K.K., Rony, A., Shakil, S.H., Haque, M.A., Hossain, M.Z., Henning, J., Paqueo, L.V.C., Green, J., 2026. Urban forests baseline and ecosystem benefits of a tropical metropolis: case of Dhaka, Bangladesh. Sci. Rep. https://doi.org/10.1038/s41598-026-46985-x
+
 
 # 1. Introduction
-This document is a r-script for analysis of the tree data collected from Dhaka North City Corporation (DNCC) applying iTree Canopy platform. Species richness, tree density, basal area, tree cover, phtosociological attributes, diversity indices of the tree species, growing stock, biomass and carbon are the major variables estimated in this r-script using i-Tree data.There aare three strata and 11 land uses in DNCC. The key parameters were estimated for per strata and land uses.
+This document is a r-script for analysis of the tree data collected from Dhaka North City Corporation (DNCC. Species richness, tree density, basal area, tree cover, phtosociological attributes, diversity indices of the tree species, growing stock, biomass and carbon are the major variables estimated in this r-script. The key parameters were estimated for per strata and land uses.
 
 
 # 2. Sampling process
